@@ -131,10 +131,15 @@ function hitTest(obs) {
          py + HIT_H > oy;
 }
 
+// ── Bounce animation on hit ──────────────────────────────────────────────────
+let bounceTimer = 0;          // seconds remaining for bounce
+const BOUNCE_DUR = 0.35;      // total bounce duration
+
 function loseLife() {
   if (invincible > 0) return;   // already invincible
   lives--;
-  invincible = INV_TIME;
+  invincible  = INV_TIME;
+  bounceTimer = BOUNCE_DUR;     // trigger bounce
   if (lives <= 0) {
     if (Math.floor(score) > highScore) {
       highScore = Math.floor(score);
@@ -158,6 +163,7 @@ function startGame() {
   obstacles   = [];
   spawnTimer  = 0;
   invincible  = 0;
+  bounceTimer = 0;
   setState(STATE.PLAYING);
 }
 
@@ -180,8 +186,9 @@ function update(dt) {
   roadY = (roadY + roadSpeed * dt) % GAME_H;
   treeY = (treeY + roadSpeed * 0.4 * dt) % GAME_H; // parallax at 40% speed
 
-  // ── Invincibility countdown ──────────────────────────────────────────────
-  if (invincible > 0) invincible = Math.max(0, invincible - dt);
+  // ── Invincibility & bounce countdown ─────────────────────────────────────
+  if (invincible   > 0) invincible   = Math.max(0, invincible   - dt);
+  if (bounceTimer  > 0) bounceTimer  = Math.max(0, bounceTimer  - dt);
 
   // ── Obstacle spawning ─────────────────────────────────────────────────────
   spawnTimer += dt;
@@ -230,6 +237,7 @@ function draw() {
   drawRoad();
   drawObstacles();
   drawPlayer();
+  drawHUD();
 }
 
 // ─── Obstacle drawing ─────────────────────────────────────────────────────────
@@ -317,7 +325,11 @@ function drawPlayer() {
   if (invincible > 0 && Math.floor(invincible / 0.1) % 2 === 0) return;
 
   const x = player.x;
-  const y = CAR_Y;
+  // Bounce: quick upward pop decaying to 0
+  const bounceOff = bounceTimer > 0
+    ? -18 * Math.sin(bounceTimer / BOUNCE_DUR * Math.PI)
+    : 0;
+  const y = CAR_Y + bounceOff;
 
   ctx.save();
   ctx.translate(x, y);
@@ -444,6 +456,56 @@ function drawTree(x, y) {
   ctx.fillStyle = '#388e3c';
   ctx.beginPath();
   ctx.arc(x - 5, y - 8, 12, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function drawHUD() {
+  // ── Semi-transparent top bar ──
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, GAME_W, 48);
+
+  // ── Heart lives ──
+  const HEART_SIZE = 26;
+  const HEART_PAD  = 8;
+  for (let i = 0; i < 3; i++) {
+    const hx = HEART_PAD + i * (HEART_SIZE + 6) + HEART_SIZE / 2;
+    const hy = 24;
+    if (i < lives) {
+      drawHeart(hx, hy, HEART_SIZE, '#FF3B6E');
+    } else {
+      drawHeart(hx, hy, HEART_SIZE, '#555');
+    }
+  }
+
+  // ── Score ──
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(Math.floor(score), GAME_W / 2, 32);
+
+  // ── Speed tier indicator ──
+  ctx.fillStyle = '#ffffffaa';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Tier ' + tier, GAME_W - 10, 32);
+
+  ctx.textAlign = 'left';
+}
+
+function drawHeart(cx, cy, size, color) {
+  const s = size / 2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + s * 0.3);
+  // Left bump
+  ctx.bezierCurveTo(cx - s * 1.0, cy - s * 0.6,
+                    cx - s * 1.0, cy + s * 0.6,
+                    cx,           cy + s * 1.1);
+  // Right bump
+  ctx.bezierCurveTo(cx + s * 1.0, cy + s * 0.6,
+                    cx + s * 1.0, cy - s * 0.6,
+                    cx,           cy + s * 0.3);
   ctx.fill();
 }
 
