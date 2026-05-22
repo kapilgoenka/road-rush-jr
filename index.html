@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Road Rush Jr. 🚗</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<script>
+'use strict';
+
+// ─── Canvas setup ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const GAME_W = 480;
+const GAME_H = 720;
+
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth / GAME_W, window.innerHeight / GAME_H);
+  canvas.style.width  = Math.floor(GAME_W * scale) + 'px';
+  canvas.style.height = Math.floor(GAME_H * scale) + 'px';
+  canvas.width  = GAME_W;
+  canvas.height = GAME_H;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ─── State machine ────────────────────────────────────────────────────────────
+const STATE = { START: 'START', PLAYING: 'PLAYING', GAME_OVER: 'GAME_OVER' };
+let gameState = STATE.START;
+function setState(s) { gameState = s; }
+
+// ─── Input ────────────────────────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (gameState === STATE.START     && (e.code === 'Space' || e.code === 'Enter')) startGame();
+  if (gameState === STATE.GAME_OVER && (e.code === 'Space' || e.code === 'Enter')) startGame();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+function isLeft()  { return keys['ArrowLeft']  || keys['KeyA']; }
+function isRight() { return keys['ArrowRight'] || keys['KeyD']; }
+
+// ─── Game variables ───────────────────────────────────────────────────────────
+let score = 0, lives = 3, elapsed = 0;
+let highScore = parseInt(localStorage.getItem('rrj_hi') || '0', 10);
+
+function startGame() {
+  score = 0; lives = 3; elapsed = 0;
+  setState(STATE.PLAYING);
+}
+
+// ─── Game loop ────────────────────────────────────────────────────────────────
+let lastTs = 0;
+function loop(ts) {
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  if (gameState !== STATE.PLAYING) return;
+  elapsed += dt;
+  score   += dt; // 1 pt/sec base — adjusted in KGO-10
+}
+
+// ─── Draw ─────────────────────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, GAME_W, GAME_H);
+  if (gameState === STATE.START)     { drawStart();    return; }
+  if (gameState === STATE.GAME_OVER) { drawGameOver(); return; }
+
+  // PLAYING placeholder — road drawn properly in KGO-6
+  ctx.fillStyle = '#2d5a27'; ctx.fillRect(0, 0, GAME_W, GAME_H);
+  ctx.fillStyle = '#555';    ctx.fillRect(80, 0, 320, GAME_H);
+  ctx.fillStyle = '#fff'; ctx.font = '15px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('Scaffold OK — road coming in KGO-6', GAME_W / 2, GAME_H / 2);
+  ctx.textAlign = 'left';
+}
+
+function drawStart() {
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, GAME_W, GAME_H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#FFD700'; ctx.font = 'bold 48px sans-serif';
+  ctx.fillText('Road Rush Jr.', GAME_W / 2, 220);
+  ctx.fillText('🚗', GAME_W / 2, 290);
+  ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif';
+  ctx.fillText('Press SPACE or ENTER to play', GAME_W / 2, 380);
+  ctx.fillStyle = '#aaa'; ctx.font = '14px sans-serif';
+  ctx.fillText('Use ← → arrow keys to dodge traffic!', GAME_W / 2, 420);
+  ctx.textAlign = 'left';
+}
+
+function drawGameOver() {
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, GAME_W, GAME_H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#FF6B6B'; ctx.font = 'bold 44px sans-serif';
+  ctx.fillText('Game Over! 💥', GAME_W / 2, 240);
+  ctx.fillStyle = '#FFD700'; ctx.font = 'bold 36px sans-serif';
+  ctx.fillText('Score: ' + Math.floor(score), GAME_W / 2, 310);
+  ctx.fillStyle = '#aaa'; ctx.font = '20px sans-serif';
+  ctx.fillText('Best: ' + highScore, GAME_W / 2, 355);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Press SPACE to try again', GAME_W / 2, 430);
+  ctx.textAlign = 'left';
+}
+
+// ─── Kick off ─────────────────────────────────────────────────────────────────
+requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
