@@ -54,12 +54,31 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 function isLeft()  { return keys['ArrowLeft']  || keys['KeyA']; }
 function isRight() { return keys['ArrowRight'] || keys['KeyD']; }
 
+// ─── Road constants ───────────────────────────────────────────────────────────
+const ROAD_L    = 80;           // left edge of asphalt
+const ROAD_R    = 400;          // right edge of asphalt
+const ROAD_W    = ROAD_R - ROAD_L;
+const LANE_W    = ROAD_W / 3;  // 3 lanes
+// Lane centre X positions
+const LANES     = [ROAD_L + LANE_W * 0.5, ROAD_L + LANE_W * 1.5, ROAD_L + LANE_W * 2.5];
+
+// Difficulty tiers — speed in px/s
+const TIER_SPEED = [0, 220, 330, 460];
+let tier      = 1;
+let roadSpeed = TIER_SPEED[tier];
+
+// Scroll offsets (wrap at GAME_H)
+let roadY = 0;      // lane markings offset
+let treeY = 0;      // parallax trees (slower)
+
 // ─── Game variables ───────────────────────────────────────────────────────────
 let score = 0, lives = 3, elapsed = 0;
 let highScore = parseInt(localStorage.getItem('rrj_hi') || '0', 10);
 
 function startGame() {
   score = 0; lives = 3; elapsed = 0;
+  tier = 1; roadSpeed = TIER_SPEED[tier];
+  roadY = 0; treeY = 0;
   setState(STATE.PLAYING);
 }
 
@@ -77,6 +96,10 @@ function update(dt) {
   if (gameState !== STATE.PLAYING) return;
   elapsed += dt;
   score   += dt; // 1 pt/sec base — adjusted in KGO-10
+
+  // Scroll road
+  roadY = (roadY + roadSpeed * dt) % GAME_H;
+  treeY = (treeY + roadSpeed * 0.4 * dt) % GAME_H; // parallax at 40% speed
 }
 
 // ─── Draw ─────────────────────────────────────────────────────────────────────
@@ -85,12 +108,79 @@ function draw() {
   if (gameState === STATE.START)     { drawStart();    return; }
   if (gameState === STATE.GAME_OVER) { drawGameOver(); return; }
 
-  // PLAYING placeholder — road drawn properly in KGO-6
-  ctx.fillStyle = '#2d5a27'; ctx.fillRect(0, 0, GAME_W, GAME_H);
-  ctx.fillStyle = '#555';    ctx.fillRect(80, 0, 320, GAME_H);
-  ctx.fillStyle = '#fff'; ctx.font = '15px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('Scaffold OK — road coming in KGO-6', GAME_W / 2, GAME_H / 2);
-  ctx.textAlign = 'left';
+  drawRoad();
+}
+
+// ─── Road drawing ─────────────────────────────────────────────────────────────
+function drawRoad() {
+  // Grass
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // Grass texture stripes (subtle lighter bands)
+  ctx.fillStyle = '#56c25a';
+  for (let stripe = -GAME_H; stripe < GAME_H * 2; stripe += 60) {
+    const y = (stripe + treeY) % (GAME_H + 60) - 60;
+    ctx.fillRect(0, y, ROAD_L, 28);
+    ctx.fillRect(ROAD_R, y, GAME_W - ROAD_R, 28);
+  }
+
+  // Asphalt
+  ctx.fillStyle = '#4a4a5a';
+  ctx.fillRect(ROAD_L, 0, ROAD_W, GAME_H);
+
+  // Road edge white lines
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(ROAD_L,     0, 4, GAME_H);
+  ctx.fillRect(ROAD_R - 4, 0, 4, GAME_H);
+
+  // Dashed lane dividers
+  const DASH_H   = 40;
+  const GAP_H    = 30;
+  const PERIOD   = DASH_H + GAP_H;
+  ctx.fillStyle = '#ffffff99';
+  for (let lane = 1; lane <= 2; lane++) {
+    const x = ROAD_L + LANE_W * lane - 2;
+    for (let d = -PERIOD; d < GAME_H + PERIOD; d += PERIOD) {
+      const y = ((d + roadY) % GAME_H + GAME_H) % GAME_H;
+      ctx.fillRect(x, y,          4, DASH_H);
+      ctx.fillRect(x, y - GAME_H, 4, DASH_H); // wrap-around twin
+    }
+  }
+
+  // Roadside trees (left & right, parallax)
+  drawTrees();
+}
+
+function drawTrees() {
+  const treeSpacing = 130;
+  const treePositions = [
+    { x: 22, side: 'left'  },
+    { x: 56, side: 'left'  },
+    { x: GAME_W - 22, side: 'right' },
+    { x: GAME_W - 56, side: 'right' },
+  ];
+  for (const tp of treePositions) {
+    for (let i = -1; i < 3; i++) {
+      const y = ((i * treeSpacing + treeY * 1.0 + tp.x * 3) % (treeSpacing * 3) + treeSpacing * 3) % (treeSpacing * 3) - treeSpacing;
+      drawTree(tp.x, y);
+    }
+  }
+}
+
+function drawTree(x, y) {
+  // Trunk
+  ctx.fillStyle = '#7b5230';
+  ctx.fillRect(x - 4, y, 8, 22);
+  // Canopy
+  ctx.fillStyle = '#2e7d32';
+  ctx.beginPath();
+  ctx.arc(x, y - 2, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#388e3c';
+  ctx.beginPath();
+  ctx.arc(x - 5, y - 8, 12, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawStart() {
