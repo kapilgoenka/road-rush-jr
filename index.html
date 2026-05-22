@@ -100,6 +100,25 @@ const INV_TIME   = 1.8; // seconds of invincibility after a hit
 // Spawn interval per tier (seconds between waves)
 const SPAWN_INTERVAL = [0, 1.8, 1.4, 1.0];
 
+// ─── Stars ────────────────────────────────────────────────────────────────────
+// Each star: { x, y }
+let stars          = [];
+let starSpawnTimer = 0;
+let starNextSpawn  = 4 + Math.random() * 2;  // first spawn at 4–6 s
+const STAR_R       = 18;    // outer radius of 5-point star shape
+const STAR_SCORE   = 10;    // points awarded per star
+
+// Score accrual rate multiplied by current tier
+const SCORE_RATE   = [0, 1, 1.5, 2.5];   // pts / second at tier 1 / 2 / 3
+
+// Floating "+10" popups: { x, y, age, maxAge }
+let scorePopups = [];
+
+function spawnStar() {
+  const lane = Math.floor(Math.random() * 3);
+  stars.push({ x: LANES[lane], y: -STAR_R });
+}
+
 function spawnObstacle() {
   // Pick 1 or 2 lanes to occupy (never all 3 at once)
   const numObs = Math.random() < 0.35 ? 2 : 1;
@@ -160,10 +179,14 @@ function startGame() {
   player.x    = GAME_W / 2;
   player.vx   = 0;
   player.tilt = 0;
-  obstacles   = [];
-  spawnTimer  = 0;
-  invincible  = 0;
-  bounceTimer = 0;
+  obstacles      = [];
+  spawnTimer     = 0;
+  invincible     = 0;
+  bounceTimer    = 0;
+  stars          = [];
+  starSpawnTimer = 0;
+  starNextSpawn  = 4 + Math.random() * 2;
+  scorePopups    = [];
   setState(STATE.PLAYING);
 }
 
@@ -180,7 +203,7 @@ function loop(ts) {
 function update(dt) {
   if (gameState !== STATE.PLAYING) return;
   elapsed += dt;
-  score   += dt; // 1 pt/sec base — adjusted in KGO-10
+  score   += dt * SCORE_RATE[tier]; // tier-scaled pts/sec
 
   // Scroll road
   roadY = (roadY + roadSpeed * dt) % GAME_H;
@@ -209,6 +232,34 @@ function update(dt) {
     if (hitTest(obs)) loseLife();
   }
 
+  // ── Star spawning ────────────────────────────────────────────────────────
+  starSpawnTimer += dt;
+  if (starSpawnTimer >= starNextSpawn) {
+    starSpawnTimer = 0;
+    starNextSpawn  = 4 + Math.random() * 2;
+    spawnStar();
+  }
+
+  // ── Star movement & collection ───────────────────────────────────────────
+  for (let i = stars.length - 1; i >= 0; i--) {
+    const star = stars[i];
+    star.y += roadSpeed * dt;
+    if (star.y > GAME_H + STAR_R) { stars.splice(i, 1); continue; }
+    // Generous circular pickup radius
+    const dx = player.x - star.x, dy = CAR_Y - star.y;
+    if (Math.sqrt(dx * dx + dy * dy) < STAR_R + CAR_W * 0.55) {
+      score += STAR_SCORE;
+      scorePopups.push({ x: star.x, y: star.y, age: 0, maxAge: 0.75 });
+      stars.splice(i, 1);
+    }
+  }
+
+  // ── Score popups countdown ───────────────────────────────────────────────
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    scorePopups[i].age += dt;
+    if (scorePopups[i].age >= scorePopups[i].maxAge) scorePopups.splice(i, 1);
+  }
+
   // ── Player movement ──────────────────────────────────────────────────────
   const moving = isLeft() || isRight();
   let targetVx = 0;
@@ -235,8 +286,10 @@ function draw() {
   if (gameState === STATE.GAME_OVER) { drawGameOver(); return; }
 
   drawRoad();
+  drawStars();
   drawObstacles();
   drawPlayer();
+  drawScorePopups();
   drawHUD();
 }
 
@@ -317,6 +370,67 @@ function drawObstacleCone(obs) {
   ctx.beginPath(); ctx.roundRect(-w/2, h/2 - 6, w, 6, 2); ctx.fill();
 
   ctx.restore();
+}
+
+// ─── Star drawing ─────────────────────────────────────────────────────────────
+function drawStars() {
+  for (const star of stars) {
+    drawStar5(star.x, star.y, STAR_R);
+  }
+}
+
+function drawStar5(cx, cy, outerR) {
+  const innerR = outerR * 0.42;
+  // Soft glow
+  const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerR * 1.6);
+  grd.addColorStop(0,   'rgba(255,240,100,0.55)');
+  grd.addColorStop(1,   'rgba(255,240,100,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Star body
+  ctx.fillStyle   = '#FFD700';
+  ctx.strokeStyle = '#E65100';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = (i * Math.PI / 5) - Math.PI / 2;
+    const r     = i % 2 === 0 ? outerR : innerR;
+    const x     = cx + Math.cos(angle) * r;
+    const y     = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else         ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Sparkle highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.ellipse(cx - outerR * 0.15, cy - outerR * 0.35, outerR * 0.18, outerR * 0.10, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ─── Floating score popups ─────────────────────────────────────────────────────
+function drawScorePopups() {
+  for (const pop of scorePopups) {
+    const t     = pop.age / pop.maxAge;            // 0 → 1
+    const alpha = 1 - t;
+    const y     = pop.y - 50 * t;                  // floats upward 50px
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = '#FFD700';
+    ctx.strokeStyle = '#7B3F00';
+    ctx.lineWidth   = 3;
+    ctx.font        = 'bold 22px sans-serif';
+    ctx.textAlign   = 'center';
+    ctx.strokeText('+10', pop.x, y);
+    ctx.fillText('+10',   pop.x, y);
+    ctx.restore();
+  }
 }
 
 // ─── Player car drawing ───────────────────────────────────────────────────────
