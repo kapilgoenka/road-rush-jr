@@ -149,8 +149,62 @@ canvas.addEventListener('click', e => {
   if (gameState === STATE.START     && gx >= 140 && gx <= 340 && gy >= 430 && gy <= 488) startGame();
   if (gameState === STATE.GAME_OVER && gx >= 130 && gx <= 350 && gy >= 420 && gy <= 478) startGame();
 });
-function isLeft()  { return keys['ArrowLeft']  || keys['KeyA']; }
-function isRight() { return keys['ArrowRight'] || keys['KeyD']; }
+function isLeft()  { return keys['ArrowLeft']  || keys['KeyA'] || touchLeft; }
+function isRight() { return keys['ArrowRight'] || keys['KeyD'] || touchRight; }
+
+// ─── Touch / on-screen button controls ───────────────────────────────────────
+let touchLeft  = false;
+let touchRight = false;
+
+// Button geometry (game coordinates) — drawn at bottom of canvas
+const BTN_Y = GAME_H - 100;
+const BTN_H = 80;
+const BTN_L_X1 = 10,  BTN_L_X2 = 150;   // LEFT button
+const BTN_R_X1 = 330, BTN_R_X2 = 470;   // RIGHT button
+
+function inLeftBtn(gx, gy)  { return gx >= BTN_L_X1 && gx <= BTN_L_X2 && gy >= BTN_Y && gy <= BTN_Y + BTN_H; }
+function inRightBtn(gx, gy) { return gx >= BTN_R_X1 && gx <= BTN_R_X2 && gy >= BTN_Y && gy <= BTN_Y + BTN_H; }
+
+function canvasCoords(e, touch) {
+  const rect = canvas.getBoundingClientRect();
+  const src  = touch || e;
+  return {
+    gx: (src.clientX - rect.left)  * (GAME_W / rect.width),
+    gy: (src.clientY - rect.top)   * (GAME_H / rect.height),
+  };
+}
+
+canvas.addEventListener('touchstart', e => {
+  ensureAudio();
+  e.preventDefault();
+  touchLeft = false; touchRight = false;
+  for (const t of e.touches) {
+    const { gx, gy } = canvasCoords(e, t);
+    if (inLeftBtn(gx, gy))  touchLeft  = true;
+    if (inRightBtn(gx, gy)) touchRight = true;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  touchLeft = false; touchRight = false;
+  for (const t of e.touches) {
+    const { gx, gy } = canvasCoords(e, t);
+    if (inLeftBtn(gx, gy))  touchLeft  = true;
+    if (inRightBtn(gx, gy)) touchRight = true;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend',    () => { touchLeft = false; touchRight = false; });
+canvas.addEventListener('touchcancel', () => { touchLeft = false; touchRight = false; });
+
+// Mouse equivalents (for desktop testing of touch areas)
+canvas.addEventListener('mousedown', e => {
+  const { gx, gy } = canvasCoords(e);
+  if (inLeftBtn(gx, gy))  touchLeft  = true;
+  if (inRightBtn(gx, gy)) touchRight = true;
+});
+canvas.addEventListener('mouseup',   () => { touchLeft = false; touchRight = false; });
 
 // ─── Road constants ───────────────────────────────────────────────────────────
 const ROAD_L    = 80;           // left edge of asphalt
@@ -419,6 +473,7 @@ function draw() {
   drawPlayer();
   drawScorePopups();
   drawHUD();
+  drawTouchButtons();
   drawTierBanner();
 }
 
@@ -757,6 +812,34 @@ function drawHeart(cx, cy, size, color) {
                     cx + s * 1.0, cy - s * 0.6,
                     cx,           cy + s * 0.3);
   ctx.fill();
+}
+
+// ─── Touch buttons (drawn over everything during gameplay) ───────────────────
+function drawTouchButtons() {
+  const alpha = 0.45;
+  const drawBtn = (x1, x2, label, pressed) => {
+    const bx = x1, bw = x2 - x1;
+    ctx.save();
+    ctx.globalAlpha = pressed ? alpha + 0.25 : alpha;
+    ctx.fillStyle = pressed ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.roundRect(bx, BTN_Y, bw, BTN_H, 14); ctx.fill();
+    // Border
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(bx, BTN_Y, bw, BTN_H, 14); ctx.stroke();
+    // Label
+    ctx.globalAlpha = pressed ? 1 : 0.85;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, bx + bw / 2, BTN_Y + BTN_H / 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.restore();
+  };
+  drawBtn(BTN_L_X1, BTN_L_X2, '◀', touchLeft);
+  drawBtn(BTN_R_X1, BTN_R_X2, '▶', touchRight);
 }
 
 // ─── Tier-up banner ───────────────────────────────────────────────────────────
