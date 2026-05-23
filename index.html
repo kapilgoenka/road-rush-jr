@@ -38,6 +38,89 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
+// ─── Audio system ─────────────────────────────────────────────────────────────
+let audioCtx  = null;
+let muted     = false;
+let engineOsc = null;   // looping engine hum oscillator
+let engineGain = null;  // gain node for engine hum
+
+function ensureAudio() {
+  if (audioCtx) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return;
+  }
+  audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+  engineGain = audioCtx.createGain();
+  engineGain.gain.value = 0;
+  engineGain.connect(audioCtx.destination);
+
+  engineOsc = audioCtx.createOscillator();
+  engineOsc.type = 'sine';
+  engineOsc.frequency.value = 82;
+  engineOsc.connect(engineGain);
+  engineOsc.start();
+}
+
+// Play a one-shot tone: frequency can be a number (constant) or [f0,f1] (sweep)
+function playTone(freq, duration, type = 'sine', peakGain = 0.3, startDelay = 0) {
+  if (muted || !audioCtx) return;
+  const t    = audioCtx.currentTime + startDelay;
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  if (Array.isArray(freq)) {
+    osc.frequency.setValueAtTime(freq[0], t);
+    osc.frequency.linearRampToValueAtTime(freq[1], t + duration);
+  } else {
+    osc.frequency.setValueAtTime(freq, t);
+  }
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(peakGain, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(t);
+  osc.stop(t + duration + 0.05);
+}
+
+function sndStar() {
+  // Ascending chime: C5 → E5 → G5 (triangle, gentle)
+  playTone(523, 0.12, 'triangle', 0.25, 0.00);
+  playTone(659, 0.12, 'triangle', 0.25, 0.09);
+  playTone(784, 0.18, 'triangle', 0.30, 0.18);
+}
+
+function sndHit() {
+  // Descending boing: 220 → 90 Hz over 300ms
+  playTone([220, 90], 0.30, 'sine', 0.40);
+}
+
+function sndTierUp() {
+  // 3-note ascending fanfare
+  playTone(523, 0.15, 'square', 0.18, 0.00);
+  playTone(659, 0.15, 'square', 0.18, 0.14);
+  playTone(880, 0.25, 'square', 0.22, 0.28);
+}
+
+function sndGameOver() {
+  // Descending wah-wah: 440 → 180 Hz
+  playTone([440, 220], 0.30, 'sawtooth', 0.20, 0.00);
+  playTone([220, 180], 0.40, 'sawtooth', 0.15, 0.28);
+}
+
+function updateEngine(dt) {
+  if (!audioCtx || !engineGain) return;
+  if (muted || gameState !== STATE.PLAYING) {
+    engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+    return;
+  }
+  // Pitch tracks road speed (80–130 Hz)
+  const targetFreq = 80 + (roadSpeed / TIER_SPEED[3]) * 50;
+  engineOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.3);
+  // Subtle volume
+  engineGain.gain.setTargetAtTime(0.04, audioCtx.currentTime, 0.2);
+}
+
 // ─── State machine ────────────────────────────────────────────────────────────
 const STATE = { START: 'START', PLAYING: 'PLAYING', GAME_OVER: 'GAME_OVER' };
 let gameState = STATE.START;
@@ -46,15 +129,23 @@ function setState(s) { gameState = s; }
 // ─── Input ────────────────────────────────────────────────────────────────────
 const keys = {};
 window.addEventListener('keydown', e => {
+  ensureAudio();
   keys[e.code] = true;
   if (gameState === STATE.START     && (e.code === 'Space' || e.code === 'Enter')) startGame();
   if (gameState === STATE.GAME_OVER && (e.code === 'Space' || e.code === 'Enter')) startGame();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 canvas.addEventListener('click', e => {
+  ensureAudio();
   const rect  = canvas.getBoundingClientRect();
   const gx    = (e.clientX - rect.left)  * (GAME_W / rect.width);
   const gy    = (e.clientY - rect.top)   * (GAME_H / rect.height);
+  // Mute toggle (top-right, all states)
+  if (gx >= GAME_W - 44 && gx <= GAME_W - 4 && gy >= 4 && gy <= 44) {
+    muted = !muted;
+    if (engineGain) engineGain.gain.setTargetAtTime(muted ? 0 : 0.04, audioCtx.currentTime, 0.1);
+    return;
+  }
   if (gameState === STATE.START     && gx >= 140 && gx <= 340 && gy >= 430 && gy <= 488) startGame();
   if (gameState === STATE.GAME_OVER && gx >= 130 && gx <= 350 && gy >= 420 && gy <= 478) startGame();
 });
@@ -171,12 +262,14 @@ function loseLife() {
   lives--;
   invincible  = INV_TIME;
   bounceTimer = BOUNCE_DUR;     // trigger bounce
+  sndHit();
   if (lives <= 0) {
     isNewHighScore = Math.floor(score) > highScore;
     if (isNewHighScore) {
       highScore = Math.floor(score);
       localStorage.setItem('rrj_hi', highScore);
     }
+    sndGameOver();
     setState(STATE.GAME_OVER);
   }
 }
@@ -221,11 +314,15 @@ function update(dt) {
   elapsed += dt;
   score   += dt * SCORE_RATE[tier]; // tier-scaled pts/sec
 
+  // ── Engine audio ─────────────────────────────────────────────────────────
+  updateEngine(dt);
+
   // ── Tier progression ─────────────────────────────────────────────────────
   const nextTier = tier < 3 && elapsed >= TIER_ELAPSED[tier + 1] ? tier + 1 : tier;
   if (nextTier !== tier) {
     tier = nextTier;
     tierBanner = { text: TIER_LABELS[tier], age: 0, maxAge: 2.2 };
+    sndTierUp();
   }
   // Smoothly lerp roadSpeed toward the target (reaches ~95% in ~1s)
   roadSpeed += (TIER_SPEED[tier] - roadSpeed) * Math.min(dt * 3, 1);
@@ -280,6 +377,7 @@ function update(dt) {
     if (Math.sqrt(dx * dx + dy * dy) < STAR_R + CAR_W * 0.55) {
       score += STAR_SCORE;
       scorePopups.push({ x: star.x, y: star.y, age: 0, maxAge: 0.75 });
+      sndStar();
       stars.splice(i, 1);
     }
   }
@@ -633,7 +731,14 @@ function drawHUD() {
   ctx.fillStyle = '#ffffffaa';
   ctx.font = '13px sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText('Tier ' + tier, GAME_W - 10, 32);
+  ctx.fillText('Tier ' + tier, GAME_W - 52, 32);
+
+  // ── Mute button ──
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.beginPath(); ctx.roundRect(GAME_W - 44, 6, 38, 36, 8); ctx.fill();
+  ctx.font = '20px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(muted ? '🔇' : '🔊', GAME_W - 25, 31);
 
   ctx.textAlign = 'left';
 }
