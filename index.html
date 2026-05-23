@@ -51,6 +51,13 @@ window.addEventListener('keydown', e => {
   if (gameState === STATE.GAME_OVER && (e.code === 'Space' || e.code === 'Enter')) startGame();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
+canvas.addEventListener('click', e => {
+  const rect  = canvas.getBoundingClientRect();
+  const gx    = (e.clientX - rect.left)  * (GAME_W / rect.width);
+  const gy    = (e.clientY - rect.top)   * (GAME_H / rect.height);
+  if (gameState === STATE.START     && gx >= 140 && gx <= 340 && gy >= 430 && gy <= 488) startGame();
+  if (gameState === STATE.GAME_OVER && gx >= 130 && gx <= 350 && gy >= 420 && gy <= 478) startGame();
+});
 function isLeft()  { return keys['ArrowLeft']  || keys['KeyA']; }
 function isRight() { return keys['ArrowRight'] || keys['KeyD']; }
 
@@ -165,7 +172,8 @@ function loseLife() {
   invincible  = INV_TIME;
   bounceTimer = BOUNCE_DUR;     // trigger bounce
   if (lives <= 0) {
-    if (Math.floor(score) > highScore) {
+    isNewHighScore = Math.floor(score) > highScore;
+    if (isNewHighScore) {
       highScore = Math.floor(score);
       localStorage.setItem('rrj_hi', highScore);
     }
@@ -175,7 +183,8 @@ function loseLife() {
 
 // ─── Game variables ───────────────────────────────────────────────────────────
 let score = 0, lives = 3, elapsed = 0;
-let highScore = parseInt(localStorage.getItem('rrj_hi') || '0', 10);
+let highScore      = parseInt(localStorage.getItem('rrj_hi') || '0', 10);
+let isNewHighScore = false;
 
 function startGame() {
   score = 0; lives = 3; elapsed = 0;
@@ -193,6 +202,7 @@ function startGame() {
   starNextSpawn  = 4 + Math.random() * 2;
   scorePopups    = [];
   tierBanner     = null;
+  isNewHighScore = false;
   setState(STATE.PLAYING);
 }
 
@@ -679,29 +689,151 @@ function drawTierBanner() {
 }
 
 function drawStart() {
-  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, GAME_W, GAME_H);
+  // ── Background gradient ──
+  const bg = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  bg.addColorStop(0, '#0d1b4b');
+  bg.addColorStop(1, '#0a2a1a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  // ── Twinkling dots ──
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  [[38,55],[115,28],[248,75],[382,42],[445,98],[62,175],[205,145],[355,165],[425,218],
+   [90,310],[300,290],[450,340],[160,380],[340,420]].forEach(([x,y]) => {
+    ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+  });
+
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#FFD700'; ctx.font = 'bold 48px sans-serif';
-  ctx.fillText('Road Rush Jr.', GAME_W / 2, 220);
-  ctx.fillText('🚗', GAME_W / 2, 290);
-  ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif';
-  ctx.fillText('Press SPACE or ENTER to play', GAME_W / 2, 380);
-  ctx.fillStyle = '#aaa'; ctx.font = '14px sans-serif';
-  ctx.fillText('Use ← → arrow keys to dodge traffic!', GAME_W / 2, 420);
+
+  // ── Title ──
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 54px sans-serif';
+  ctx.fillText('Road Rush Jr.', GAME_W / 2, 130);
+
+  // ── Best score ──
+  if (highScore > 0) {
+    ctx.fillStyle = '#ffffffaa';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('🏆 Best: ' + highScore, GAME_W / 2, 160);
+  }
+
+  // ── Animated preview car ──
+  const t   = performance.now() / 1000;
+  const bob = Math.sin(t * 2.8) * 9;      // gentle bob
+  const cx  = GAME_W / 2;
+  const cy  = 295 + bob;
+
+  // Road patch under car
+  ctx.fillStyle = '#3a3a4a';
+  ctx.beginPath(); ctx.roundRect(cx - 55, cy + 40, 110, 18, 5); ctx.fill();
+  ctx.fillStyle = '#ffffff55';
+  ctx.fillRect(cx - 5, cy + 42, 10, 14); // centre dash
+
+  // Simplified preview car (drawn inline, centred at cx, cy)
+  ctx.save();
+  ctx.translate(cx, cy);
+  const pw = 52, ph = 84, pr = 9;
+  ctx.fillStyle = player.color;
+  ctx.beginPath();
+  ctx.moveTo(-pw/2+pr, -ph/2); ctx.lineTo(pw/2-pr, -ph/2);
+  ctx.arcTo(pw/2,-ph/2, pw/2,-ph/2+pr, pr); ctx.lineTo(pw/2, ph/2-pr);
+  ctx.arcTo(pw/2, ph/2, pw/2-pr, ph/2, pr); ctx.lineTo(-pw/2+pr, ph/2);
+  ctx.arcTo(-pw/2, ph/2,-pw/2, ph/2-pr, pr); ctx.lineTo(-pw/2,-ph/2+pr);
+  ctx.arcTo(-pw/2,-ph/2,-pw/2+pr,-ph/2, pr);
+  ctx.closePath(); ctx.fill();
+  // Windscreen
+  ctx.fillStyle = '#b3e5fc';
+  ctx.beginPath(); ctx.roundRect(-pw/2+7, -ph/2+7, pw-14, ph*0.28, 5); ctx.fill();
+  // Rear window
+  ctx.beginPath(); ctx.roundRect(-pw/2+9, ph/2-ph*0.27, pw-18, ph*0.20, 4); ctx.fill();
+  // Wheels
+  const wxo = pw/2+5;
+  [[-wxo,-ph/2+16],[wxo,-ph/2+16],[-wxo,ph/2-16],[wxo,ph/2-16]].forEach(([wx,wy]) => {
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.roundRect(wx-7,wy-12,14,24,3); ctx.fill();
+    ctx.fillStyle = '#aaa'; ctx.beginPath(); ctx.arc(wx,wy,4.5,0,Math.PI*2); ctx.fill();
+  });
+  // Headlights
+  ctx.fillStyle = '#fffde7';
+  ctx.beginPath(); ctx.ellipse(-pw/2+9,-ph/2+5,6,4.5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( pw/2-9,-ph/2+5,6,4.5,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // ── PLAY button ──
+  const btnW = 200, btnH = 58, btnX = cx - btnW/2, btnY = 430;
+  const btnG = ctx.createLinearGradient(btnX, btnY, btnX, btnY+btnH);
+  btnG.addColorStop(0, '#43A047'); btnG.addColorStop(1, '#1B5E20');
+  ctx.fillStyle = btnG;
+  ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 14); ctx.fill();
+  ctx.strokeStyle = '#A5D6A7'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 14); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 26px sans-serif';
+  ctx.fillText('▶  PLAY', cx, btnY + 39);
+
+  // ── Hints ──
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('← → arrow keys to dodge traffic', cx, 518);
+  ctx.fillText('SPACE / ENTER also starts the game', cx, 538);
+
   ctx.textAlign = 'left';
 }
 
 function drawGameOver() {
-  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, GAME_W, GAME_H);
+  // ── Background gradient ──
+  const bg = ctx.createLinearGradient(0, 0, 0, GAME_H);
+  bg.addColorStop(0,   '#2d0a0a');
+  bg.addColorStop(0.5, '#1a1a2e');
+  bg.addColorStop(1,   '#0a1a2d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#FF6B6B'; ctx.font = 'bold 44px sans-serif';
-  ctx.fillText('Game Over! 💥', GAME_W / 2, 240);
-  ctx.fillStyle = '#FFD700'; ctx.font = 'bold 36px sans-serif';
-  ctx.fillText('Score: ' + Math.floor(score), GAME_W / 2, 310);
-  ctx.fillStyle = '#aaa'; ctx.font = '20px sans-serif';
-  ctx.fillText('Best: ' + highScore, GAME_W / 2, 355);
-  ctx.fillStyle = '#fff';
-  ctx.fillText('Press SPACE to try again', GAME_W / 2, 430);
+
+  // ── Heading ──
+  ctx.fillStyle = '#FF6B6B';
+  ctx.font = 'bold 46px sans-serif';
+  ctx.fillText('Game Over! 💥', GAME_W / 2, 195);
+
+  // ── Score ──
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 56px sans-serif';
+  ctx.fillText(Math.floor(score), GAME_W / 2, 275);
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '15px sans-serif';
+  ctx.fillText('YOUR SCORE', GAME_W / 2, 300);
+
+  // ── High score ──
+  if (isNewHighScore) {
+    // Pulsing gold "New Best!"
+    const pulse = 0.78 + 0.22 * Math.sin(performance.now() / 180);
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillText('🏆 New Best! 🏆', GAME_W / 2, 348);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#aaa';
+    ctx.font = '18px sans-serif';
+    ctx.fillText('Best: ' + highScore, GAME_W / 2, 348);
+  }
+
+  // ── TRY AGAIN button ──
+  const btnW = 220, btnH = 58, btnX = GAME_W/2 - btnW/2, btnY = 420;
+  const btnG = ctx.createLinearGradient(btnX, btnY, btnX, btnY+btnH);
+  btnG.addColorStop(0, '#1565C0'); btnG.addColorStop(1, '#0D47A1');
+  ctx.fillStyle = btnG;
+  ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 14); ctx.fill();
+  ctx.strokeStyle = '#90CAF9'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 14); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 24px sans-serif';
+  ctx.fillText('▶  Try Again', GAME_W / 2, btnY + 38);
+
+  // ── Hint ──
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('or press SPACE / ENTER', GAME_W / 2, 508);
+
   ctx.textAlign = 'left';
 }
 
