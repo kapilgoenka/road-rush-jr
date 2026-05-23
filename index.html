@@ -271,6 +271,31 @@ const SCORE_RATE   = [0, 1, 1.5, 2.5];   // pts / second at tier 1 / 2 / 3
 // Floating "+10" popups: { x, y, age, maxAge }
 let scorePopups = [];
 
+// ─── Visual effects ───────────────────────────────────────────────────────────
+// Sparkle particles: { x, y, vx, vy, age, maxAge, color }
+let particles = [];
+
+// Screen shake
+let shakeTimer = 0;
+const SHAKE_DUR = 0.30;  // seconds
+const SHAKE_MAG = 7;     // max pixel offset
+
+function spawnParticles(cx, cy) {
+  const colors = ['#FFD700','#FFF176','#FFB300','#FF8F00','#FFFFFF'];
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
+    const speed = 60 + Math.random() * 100;
+    particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      age: 0, maxAge: 0.38 + Math.random() * 0.12,
+      r: 3 + Math.random() * 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  }
+}
+
 function spawnStar() {
   const lane = Math.floor(Math.random() * 3);
   stars.push({ x: LANES[lane], y: -STAR_R });
@@ -316,6 +341,7 @@ function loseLife() {
   lives--;
   invincible  = INV_TIME;
   bounceTimer = BOUNCE_DUR;     // trigger bounce
+  shakeTimer = SHAKE_DUR;
   sndHit();
   if (lives <= 0) {
     isNewHighScore = Math.floor(score) > highScore;
@@ -350,6 +376,8 @@ function startGame() {
   scorePopups    = [];
   tierBanner     = null;
   isNewHighScore = false;
+  particles      = [];
+  shakeTimer     = 0;
   setState(STATE.PLAYING);
 }
 
@@ -431,6 +459,7 @@ function update(dt) {
     if (Math.sqrt(dx * dx + dy * dy) < STAR_R + CAR_W * 0.55) {
       score += STAR_SCORE;
       scorePopups.push({ x: star.x, y: star.y, age: 0, maxAge: 0.75 });
+      spawnParticles(star.x, star.y);
       sndStar();
       stars.splice(i, 1);
     }
@@ -441,6 +470,19 @@ function update(dt) {
     scorePopups[i].age += dt;
     if (scorePopups[i].age >= scorePopups[i].maxAge) scorePopups.splice(i, 1);
   }
+
+  // ── Particles ────────────────────────────────────────────────────────────
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.age += dt;
+    if (p.age >= p.maxAge) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 180 * dt; // gentle gravity
+  }
+
+  // ── Screen shake countdown ────────────────────────────────────────────────
+  if (shakeTimer > 0) shakeTimer = Math.max(0, shakeTimer - dt);
 
   // ── Player movement ──────────────────────────────────────────────────────
   const moving = isLeft() || isRight();
@@ -467,11 +509,25 @@ function draw() {
   if (gameState === STATE.START)     { drawStart();    return; }
   if (gameState === STATE.GAME_OVER) { drawGameOver(); return; }
 
+  // Screen shake — offset canvas for hit feedback
+  if (shakeTimer > 0) {
+    const mag = SHAKE_MAG * (shakeTimer / SHAKE_DUR);
+    ctx.save();
+    ctx.translate(
+      (Math.random() * 2 - 1) * mag,
+      (Math.random() * 2 - 1) * mag
+    );
+  }
+
   drawRoad();
   drawStars();
   drawObstacles();
   drawPlayer();
+  drawParticles();
   drawScorePopups();
+
+  if (shakeTimer > 0) ctx.restore();
+
   drawHUD();
   drawTouchButtons();
   drawTierBanner();
@@ -812,6 +868,21 @@ function drawHeart(cx, cy, size, color) {
                     cx + s * 1.0, cy - s * 0.6,
                     cx,           cy + s * 0.3);
   ctx.fill();
+}
+
+// ─── Particle drawing ─────────────────────────────────────────────────────────
+function drawParticles() {
+  for (const p of particles) {
+    const t     = p.age / p.maxAge;
+    const alpha = 1 - t;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * (1 - t * 0.5), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 // ─── Touch buttons (drawn over everything during gameplay) ───────────────────
