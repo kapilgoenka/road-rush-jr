@@ -63,9 +63,14 @@ const LANE_W    = ROAD_W / 3;  // 3 lanes
 const LANES     = [ROAD_L + LANE_W * 0.5, ROAD_L + LANE_W * 1.5, ROAD_L + LANE_W * 2.5];
 
 // Difficulty tiers — speed in px/s
-const TIER_SPEED = [0, 220, 330, 460];
+const TIER_SPEED    = [0, 220, 330, 460];
+const TIER_ELAPSED  = [0,   0,  30,  60]; // seconds at which each tier starts
+const TIER_LABELS   = ['', '', '🟡 Getting Faster! 🚀', '🔴 Zoom Zoom! 🚀'];
 let tier      = 1;
 let roadSpeed = TIER_SPEED[tier];
+
+// Tier announcement banner: { text, age, maxAge }
+let tierBanner = null;
 
 // Scroll offsets (wrap at GAME_H)
 let roadY = 0;      // lane markings offset
@@ -187,6 +192,7 @@ function startGame() {
   starSpawnTimer = 0;
   starNextSpawn  = 4 + Math.random() * 2;
   scorePopups    = [];
+  tierBanner     = null;
   setState(STATE.PLAYING);
 }
 
@@ -204,6 +210,20 @@ function update(dt) {
   if (gameState !== STATE.PLAYING) return;
   elapsed += dt;
   score   += dt * SCORE_RATE[tier]; // tier-scaled pts/sec
+
+  // ── Tier progression ─────────────────────────────────────────────────────
+  const nextTier = tier < 3 && elapsed >= TIER_ELAPSED[tier + 1] ? tier + 1 : tier;
+  if (nextTier !== tier) {
+    tier = nextTier;
+    tierBanner = { text: TIER_LABELS[tier], age: 0, maxAge: 2.2 };
+  }
+  // Smoothly lerp roadSpeed toward the target (reaches ~95% in ~1s)
+  roadSpeed += (TIER_SPEED[tier] - roadSpeed) * Math.min(dt * 3, 1);
+  // Tier banner countdown
+  if (tierBanner) {
+    tierBanner.age += dt;
+    if (tierBanner.age >= tierBanner.maxAge) tierBanner = null;
+  }
 
   // Scroll road
   roadY = (roadY + roadSpeed * dt) % GAME_H;
@@ -291,6 +311,7 @@ function draw() {
   drawPlayer();
   drawScorePopups();
   drawHUD();
+  drawTierBanner();
 }
 
 // ─── Obstacle drawing ─────────────────────────────────────────────────────────
@@ -621,6 +642,40 @@ function drawHeart(cx, cy, size, color) {
                     cx + s * 1.0, cy - s * 0.6,
                     cx,           cy + s * 0.3);
   ctx.fill();
+}
+
+// ─── Tier-up banner ───────────────────────────────────────────────────────────
+function drawTierBanner() {
+  if (!tierBanner) return;
+  const t = tierBanner.age / tierBanner.maxAge;       // 0 → 1
+  // Fade in over first 20%, hold, fade out over last 30%
+  let alpha;
+  if (t < 0.2)      alpha = t / 0.2;
+  else if (t < 0.7) alpha = 1;
+  else               alpha = (1 - t) / 0.3;
+  alpha = Math.max(0, Math.min(1, alpha));
+
+  const cy = GAME_H / 2 - 30;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Pill background
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.beginPath();
+  ctx.roundRect(GAME_W * 0.12, cy - 30, GAME_W * 0.76, 60, 16);
+  ctx.fill();
+
+  // Text
+  ctx.fillStyle   = '#FFD700';
+  ctx.font        = 'bold 26px sans-serif';
+  ctx.textAlign   = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(tierBanner.text, GAME_W / 2, cy);
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign   = 'left';
+
+  ctx.restore();
 }
 
 function drawStart() {
