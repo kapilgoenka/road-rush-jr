@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Road Rush Jr. 🚗</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -21,6 +22,13 @@
 <canvas id="gameCanvas"></canvas>
 <script>
 'use strict';
+
+// ─── Supabase client ──────────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://wfatoxcygbtjbqtrhkbz.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYXRveGN5Z2J0amJxdHJoa2J6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MjM0MTksImV4cCI6MjA5NDA5OTQxOX0.iqJoU6hWoeub7WfYqAgKIQNc4kbAlJPgMjEfPQlZBBY';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let currentUser = null; // { id, email, username } — null means guest
 
 // ─── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas = document.getElementById('gameCanvas');
