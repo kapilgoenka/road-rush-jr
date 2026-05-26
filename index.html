@@ -265,6 +265,31 @@ authSubmit.addEventListener('click', handleAuthSubmit);
 authPass.addEventListener('keydown', e => { if (e.key === 'Enter') handleAuthSubmit(); });
 authGuest.addEventListener('click', () => { currentUser = null; hideAuthForm(); setState(STATE.START); });
 
+// ─── Session persistence & logout ─────────────────────────────────────────────
+sb.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_OUT') { currentUser = null; }
+});
+
+async function logout() {
+  await sb.auth.signOut();
+  currentUser = null;
+  setState(STATE.AUTH);
+  showAuthForm();
+}
+
+// Logout button hit area (game coords) — bottom-centre of START / GAME_OVER screens
+const LOUT_X1 = GAME_W / 2 - 60, LOUT_X2 = GAME_W / 2 + 60;
+const LOUT_Y1 = GAME_H - 54,     LOUT_Y2 = GAME_H - 26;
+
+function drawLogoutBtn() {
+  if (!currentUser) return;
+  ctx.textAlign   = 'center';
+  ctx.fillStyle   = 'rgba(255,255,255,0.28)';
+  ctx.font        = '13px sans-serif';
+  ctx.fillText('Log out', GAME_W / 2, LOUT_Y2);
+  ctx.textAlign   = 'left';
+}
+
 // ─── Input ────────────────────────────────────────────────────────────────────
 const keys = {};
 window.addEventListener('keydown', e => {
@@ -287,6 +312,10 @@ canvas.addEventListener('click', e => {
   }
   if (gameState === STATE.START     && gx >= 140 && gx <= 340 && gy >= 430 && gy <= 488) startGame();
   if (gameState === STATE.GAME_OVER && gx >= 130 && gx <= 350 && gy >= 420 && gy <= 478) startGame();
+  // Logout button (START and GAME_OVER, logged-in users only)
+  if (currentUser && (gameState === STATE.START || gameState === STATE.GAME_OVER)) {
+    if (gx >= LOUT_X1 && gx <= LOUT_X2 && gy >= LOUT_Y1 && gy <= LOUT_Y2) { logout(); return; }
+  }
 });
 function isLeft()  { return keys['ArrowLeft']  || keys['KeyA'] || touchLeft; }
 function isRight() { return keys['ArrowRight'] || keys['KeyD'] || touchRight; }
@@ -1191,6 +1220,7 @@ function drawStart() {
   ctx.fillText('SPACE / ENTER also starts the game', cx, 538);
 
   ctx.textAlign = 'left';
+  drawLogoutBtn();
 }
 
 function drawGameOver() {
@@ -1250,6 +1280,7 @@ function drawGameOver() {
   ctx.fillText('or press SPACE / ENTER', GAME_W / 2, 508);
 
   ctx.textAlign = 'left';
+  drawLogoutBtn();
 }
 
 // ─── Kick off ─────────────────────────────────────────────────────────────────
