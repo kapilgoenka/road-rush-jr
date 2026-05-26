@@ -16,10 +16,70 @@
       overflow: hidden;
     }
     canvas { display: block; }
+
+    /* ── Auth overlay ─────────────────────────────────────────────────────── */
+    #authOverlay {
+      position: fixed; inset: 0;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; z-index: 10;
+    }
+    #authOverlay.visible { display: flex; }
+
+    #authTabs { display: flex; gap: 0; margin-bottom: 4px; }
+    .auth-tab {
+      padding: 10px 32px; font-size: 15px; font-weight: bold; cursor: pointer;
+      background: #2a2a4e; color: #aaa; border: 2px solid #3a3a6e;
+      transition: background 0.15s, color 0.15s;
+    }
+    .auth-tab:first-child { border-radius: 8px 0 0 8px; }
+    .auth-tab:last-child  { border-radius: 0 8px 8px 0; }
+    .auth-tab.active { background: #f59e0b; color: #1a1a2e; border-color: #f59e0b; }
+
+    .auth-input {
+      width: 280px; padding: 13px 16px; font-size: 16px;
+      background: #2a2a4e; color: #fff; border: 2px solid #3a3a6e;
+      border-radius: 8px; outline: none; transition: border-color 0.15s;
+    }
+    .auth-input:focus { border-color: #f59e0b; }
+    .auth-input::placeholder { color: #666; }
+
+    .auth-btn {
+      width: 280px; padding: 14px; font-size: 17px; font-weight: bold;
+      background: #f59e0b; color: #1a1a2e; border: none; border-radius: 8px;
+      cursor: pointer; transition: opacity 0.15s;
+    }
+    .auth-btn:disabled { opacity: 0.5; cursor: default; }
+
+    #authError {
+      color: #ff6b6b; font-size: 13px; min-height: 18px;
+      font-family: sans-serif; text-align: center; max-width: 280px;
+    }
+
+    .auth-guest {
+      background: none; border: none; color: #888; font-size: 13px;
+      cursor: pointer; text-decoration: underline; padding: 4px;
+      font-family: sans-serif;
+    }
+    .auth-guest:hover { color: #bbb; }
   </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
+
+<div id="authOverlay">
+  <div id="authTabs">
+    <button class="auth-tab active" id="tabLogin">Log In</button>
+    <button class="auth-tab"        id="tabSignup">Sign Up</button>
+  </div>
+  <input class="auth-input" id="authEmail" type="email"    placeholder="Email" autocomplete="email" />
+  <input class="auth-input" id="authName"  type="text"     placeholder="Username (min 3 chars)" autocomplete="username" style="display:none" />
+  <input class="auth-input" id="authPass"  type="password" placeholder="Password (min 6 chars)" autocomplete="current-password" />
+  <button class="auth-btn"  id="authSubmit">Log In</button>
+  <div id="authError"></div>
+  <button class="auth-guest" id="authGuest">Play as guest →</button>
+</div>
+
 <script>
 'use strict';
 
@@ -130,9 +190,80 @@ function updateEngine(dt) {
 }
 
 // ─── State machine ────────────────────────────────────────────────────────────
-const STATE = { START: 'START', PLAYING: 'PLAYING', GAME_OVER: 'GAME_OVER' };
-let gameState = STATE.START;
+const STATE = { AUTH: 'AUTH', START: 'START', PLAYING: 'PLAYING', GAME_OVER: 'GAME_OVER' };
+let gameState = STATE.AUTH;
 function setState(s) { gameState = s; }
+
+// ─── Auth screen logic ────────────────────────────────────────────────────────
+let authMode = 'login';
+
+const authOverlay = document.getElementById('authOverlay');
+const tabLogin    = document.getElementById('tabLogin');
+const tabSignup   = document.getElementById('tabSignup');
+const authEmail   = document.getElementById('authEmail');
+const authName    = document.getElementById('authName');
+const authPass    = document.getElementById('authPass');
+const authSubmit  = document.getElementById('authSubmit');
+const authError   = document.getElementById('authError');
+const authGuest   = document.getElementById('authGuest');
+
+function showAuthForm() {
+  authOverlay.classList.add('visible');
+  authError.textContent = '';
+  authEmail.value = authPass.value = authName.value = '';
+  setAuthMode('login');
+}
+
+function hideAuthForm() {
+  authOverlay.classList.remove('visible');
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const isSignup = mode === 'signup';
+  tabLogin.classList.toggle('active',  !isSignup);
+  tabSignup.classList.toggle('active',  isSignup);
+  authName.style.display    = isSignup ? 'block' : 'none';
+  authSubmit.textContent    = isSignup ? 'Sign Up' : 'Log In';
+  authError.textContent     = '';
+}
+
+async function handleAuthSubmit() {
+  const email = authEmail.value.trim();
+  const pass  = authPass.value;
+  const name  = authName.value.trim();
+  authError.textContent  = '';
+  authSubmit.disabled    = true;
+  authSubmit.textContent = '…';
+
+  try {
+    if (authMode === 'login') {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) throw error;
+      const { data: profile } = await sb.from('profiles').select('username').eq('id', data.user.id).single();
+      currentUser = { id: data.user.id, email: data.user.email, username: profile?.username ?? email };
+    } else {
+      if (name.length < 3) throw new Error('Username must be at least 3 characters.');
+      const { data, error } = await sb.auth.signUp({ email, password: pass });
+      if (error) throw error;
+      await sb.from('profiles').insert({ id: data.user.id, username: name });
+      currentUser = { id: data.user.id, email: data.user.email, username: name };
+    }
+    hideAuthForm();
+    setState(STATE.START);
+  } catch (err) {
+    authError.textContent = err.message;
+  } finally {
+    authSubmit.disabled    = false;
+    authSubmit.textContent = authMode === 'login' ? 'Log In' : 'Sign Up';
+  }
+}
+
+tabLogin.addEventListener('click',  () => setAuthMode('login'));
+tabSignup.addEventListener('click', () => setAuthMode('signup'));
+authSubmit.addEventListener('click', handleAuthSubmit);
+authPass.addEventListener('keydown', e => { if (e.key === 'Enter') handleAuthSubmit(); });
+authGuest.addEventListener('click', () => { currentUser = null; hideAuthForm(); setState(STATE.START); });
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 const keys = {};
@@ -511,11 +642,28 @@ function update(dt) {
   player.tilt = player.tilt + (targetTilt - player.tilt) * Math.min(dt * 8, 1);
 }
 
+// ─── Auth background (HTML form sits on top) ──────────────────────────────────
+function drawAuthScreen() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f59e0b';
+  ctx.font = 'bold 42px sans-serif';
+  ctx.fillText('Road Rush Jr. 🚗', GAME_W / 2, 160);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = '16px sans-serif';
+  ctx.fillText('Log in to save your high score', GAME_W / 2, 210);
+  ctx.textAlign = 'left';
+}
+
 // ─── Draw ─────────────────────────────────────────────────────────────────────
 function draw() {
   ctx.clearRect(0, 0, GAME_W, GAME_H);
-  if (gameState === STATE.START)     { drawStart();    return; }
-  if (gameState === STATE.GAME_OVER) { drawGameOver(); return; }
+  if (gameState === STATE.AUTH)      { drawAuthScreen(); return; }
+  if (gameState === STATE.START)     { drawStart();      return; }
+  if (gameState === STATE.GAME_OVER) { drawGameOver();   return; }
 
   // Screen shake — offset canvas for hit feedback
   if (shakeTimer > 0) {
@@ -1105,7 +1253,18 @@ function drawGameOver() {
 }
 
 // ─── Kick off ─────────────────────────────────────────────────────────────────
-requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    const { data: profile } = await sb.from('profiles').select('username').eq('id', session.user.id).single();
+    currentUser = { id: session.user.id, email: session.user.email, username: profile?.username ?? session.user.email };
+    setState(STATE.START);
+  } else {
+    setState(STATE.AUTH);
+    showAuthForm();
+  }
+  requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+})();
 </script>
 </body>
 </html>
