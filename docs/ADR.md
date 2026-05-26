@@ -27,3 +27,25 @@ Use the existing **Supabase project** (`wfatoxcygbtjbqtrhkbz`) as the auth and d
 - The anon key is visible in client-side source. RLS policies are the only access control layer — they must be correct before going to production.
 - All future auth-dependent features (`currentUser` checks, score inserts) depend on this initialisation running before the game loop starts.
 - Guest mode remains fully functional with no network calls; `currentUser === null` is the guest signal used everywhere.
+
+---
+
+## ADR-002 — HTML overlay for the auth form rather than canvas-drawn inputs
+
+**Issue:** KGO-28 | **Date:** 2026-05-26 | **Status:** Accepted
+
+### Context
+The game renders entirely on a single `<canvas>`. Implementing a login/signup form required text inputs and buttons. Two approaches were considered: draw everything on canvas with custom input simulation, or use native HTML `<input>` elements absolutely positioned over the canvas.
+
+### Decision
+Use a **fixed `<div id="authOverlay">`** containing native HTML inputs, toggled visible/hidden via a CSS class (`visible`). The canvas continues to run and draws a dark background + title behind the overlay during `STATE.AUTH`. The overlay is removed from view (not from the DOM) on state transition, and inputs are cleared when re-shown.
+
+### Alternatives considered
+- **Full canvas input simulation** — manually track cursor position, draw text fields, handle keyboard events, caret blinking, selection. Much higher implementation complexity with no UX benefit for this use case.
+- **Separate auth page** — redirect to a dedicated `/login.html`. Breaks the single-file constraint and requires a server-side session handoff.
+
+### Consequences
+- Native inputs give the browser's built-in autofill, password managers, and accessibility support for free.
+- The overlay must be explicitly hidden when leaving AUTH state; forgetting this in any transition would leave inputs on screen during gameplay.
+- Canvas scaling is independent of the overlay layout; the overlay uses `position: fixed; inset: 0` with flexbox centering, so it stays aligned regardless of canvas scale.
+- `STATE.AUTH` is now the initial game state. The kick-off is async: `sb.auth.getSession()` resolves before the first `requestAnimationFrame`, so there is a brief blank frame before the auth screen or start screen appears.
