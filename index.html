@@ -517,9 +517,29 @@ function loseLife() {
       highScore = Math.floor(score);
       localStorage.setItem('rrj_hi', highScore);
     }
+    cloudBest = null;                        // reset while fetch is in-flight
+    syncScoreToCloud(Math.floor(score));     // fire-and-forget; updates cloudBest async
     sndGameOver();
     setState(STATE.GAME_OVER);
   }
+}
+
+// ─── Cloud high score sync ────────────────────────────────────────────────────
+let cloudBest = null; // number once fetched; null = loading or guest
+
+async function syncScoreToCloud(finalScore) {
+  if (!currentUser) return;
+  try {
+    // Insert this run (fire-and-forget; don't await before showing GAME_OVER)
+    sb.from('high_scores').insert({ user_id: currentUser.id, score: finalScore });
+    // Fetch the user's all-time best from the DB
+    const { data } = await sb.from('high_scores')
+      .select('score')
+      .eq('user_id', currentUser.id)
+      .order('score', { ascending: false })
+      .limit(1);
+    cloudBest = data?.[0]?.score ?? finalScore;
+  } catch (_) { /* network error — leave cloudBest null, fall back to localStorage */ }
 }
 
 // ─── Game variables ───────────────────────────────────────────────────────────
@@ -1237,30 +1257,41 @@ function drawGameOver() {
   // ── Heading ──
   ctx.fillStyle = '#FF6B6B';
   ctx.font = 'bold 46px sans-serif';
-  ctx.fillText('Game Over! 💥', GAME_W / 2, 195);
+  ctx.fillText('Game Over! 💥', GAME_W / 2, 185);
+
+  // ── Username greeting (logged-in only) ──
+  if (currentUser) {
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('Nice run, ' + currentUser.username + '!', GAME_W / 2, 218);
+  }
 
   // ── Score ──
   ctx.fillStyle = '#FFD700';
   ctx.font = 'bold 56px sans-serif';
-  ctx.fillText(Math.floor(score), GAME_W / 2, 275);
+  ctx.fillText(Math.floor(score), GAME_W / 2, 290);
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.font = '15px sans-serif';
-  ctx.fillText('YOUR SCORE', GAME_W / 2, 300);
+  ctx.fillText('YOUR SCORE', GAME_W / 2, 314);
 
-  // ── High score ──
+  // ── Best score (cloud for logged-in users, localStorage for guests) ──
   if (isNewHighScore) {
-    // Pulsing gold "New Best!"
     const pulse = 0.78 + 0.22 * Math.sin(performance.now() / 180);
     ctx.save();
     ctx.globalAlpha = pulse;
     ctx.fillStyle = '#FFD700';
     ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('🏆 New Best! 🏆', GAME_W / 2, 348);
+    ctx.fillText('🏆 New Best! 🏆', GAME_W / 2, 362);
     ctx.restore();
+  } else if (currentUser) {
+    ctx.fillStyle = '#aaa';
+    ctx.font = '16px sans-serif';
+    const bestLabel = cloudBest !== null ? '☁ Cloud best: ' + cloudBest : 'Local best: ' + highScore;
+    ctx.fillText(bestLabel, GAME_W / 2, 362);
   } else {
     ctx.fillStyle = '#aaa';
     ctx.font = '18px sans-serif';
-    ctx.fillText('Best: ' + highScore, GAME_W / 2, 348);
+    ctx.fillText('Best: ' + highScore, GAME_W / 2, 362);
   }
 
   // ── TRY AGAIN button ──
