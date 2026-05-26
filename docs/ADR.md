@@ -70,3 +70,30 @@ Draw the logout button **on the canvas** as a low-contrast text label ("Log out"
 - The hit area is defined in game-coordinate space and scales correctly with canvas resize, since the click handler already performs the viewport→game conversion.
 - `logout()` is async (awaits `sb.auth.signOut()`). Clicking logout while a network call is in flight won't cause issues — state transitions happen in the `await` chain — but there is no loading indicator for the brief sign-out delay.
 - `onAuthStateChange` fires `SIGNED_OUT` after `signOut()` resolves; the handler also clears `currentUser` as a safety net in case logout is triggered from outside the game (e.g. another tab).
+
+---
+
+## ADR-004 — Fire-and-forget score insertion with async cloud best fetch
+
+**Issue:** KGO-30 | **Date:** 2026-05-26 | **Status:** Accepted
+
+### Context
+On game over, two Supabase operations are needed: insert the run's score, and fetch the user's all-time best to display on the game-over screen. The game-over screen must appear immediately — the player should not wait on network calls before seeing their result.
+
+### Decision
+`syncScoreToCloud(finalScore)` is called **without `await`** at the GAME_OVER transition, so the game-over screen renders instantly. Inside the async function:
+1. The insert is fired without awaiting its result (best-effort; no retry).
+2. The best-score `SELECT` is awaited, then stored in `cloudBest`.
+3. Any error is silently caught; `cloudBest` remains `null`.
+
+`drawGameOver()` renders the best-score line reactively: it shows `cloudBest` once populated, otherwise falls back to the local `highScore`. This means the displayed best may update mid-screen (from "Local best: N" to "☁ Cloud best: N") once the fetch resolves — acceptable given the game-over screen stays visible until the player acts.
+
+### Alternatives considered
+- **Await both calls before transitioning** — guarantees consistent display but blocks the game-over screen by a full network round-trip (~100–400ms). Bad UX.
+- **Optimistic local update only** — never fetch from DB; simplest but defeats the cross-device sync goal of logging in.
+- **Insert + fetch in a single RPC** — would require a Postgres function; over-engineered for this use case.
+
+### Consequences
+- If the insert fails silently (network error, RLS violation), the score is lost for that run. No retry mechanism.
+- `cloudBest` is reset to `null` at each GAME_OVER transition so the fallback label is always shown first, avoiding a stale value from the previous run.
+- Guest mode: `syncScoreToCloud` is a no-op guarded by `if (!currentUser) return`. No DB calls are made for guests.
